@@ -14,13 +14,13 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // Respiratory LED
 #define RESP_R      10
-#define RESP_G      9
-#define RESP_B      8
+#define RESP_B      9
+#define RESP_G      8
 
 // Circulatory LED
 #define CIRC_R      13
-#define CIRC_G      12
-#define CIRC_B      11
+#define CIRC_B      12
+#define CIRC_G      11
 
 // Timer constants
 #define OVF_MS            16UL
