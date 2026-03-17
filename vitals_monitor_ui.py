@@ -6,7 +6,6 @@ import threading
 import time
 from datetime import datetime
 
-
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def parse_line(line):
@@ -88,7 +87,6 @@ def generate_report_text(log):
         f"  Start:    {start_str}",
         f"  End:      {end_str}",
         f"  Duration: {mins} min {secs} s",
-        f"  Samples:  {total}",
         "",
         "── Heart Rate ──────────────────────────",
     ]
@@ -144,7 +142,10 @@ class VitalsApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Vitals Monitor")
-        self.root.resizable(False, False)
+        self.root.resizable(True, True)
+        self.root.geometry("800x600")
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(3, weight=1)
 
         self.ser        = None
         self.running    = False
@@ -180,17 +181,17 @@ class VitalsApp:
         live = ttk.LabelFrame(self.root, text="Live Vitals")
         live.grid(row=1, column=0, columnspan=2, sticky="ew", **PAD)
 
-        self.hr_lbl   = ttk.Label(live, text="HR  —",   font=("Courier", 18, "bold"), width=10)
-        self.rr_lbl   = ttk.Label(live, text="RR  —",   font=("Courier", 18, "bold"), width=10)
-        self.spo2_lbl = ttk.Label(live, text="SpO2 —",  font=("Courier", 14),         width=12)
-        self.bp_lbl   = ttk.Label(live, text="BP   —",  font=("Courier", 14),         width=14)
+        self.hr_lbl   = ttk.Label(live, text="HR  —",   font=("Courier", 16, "bold"), width=18)
+        self.rr_lbl   = ttk.Label(live, text="RR  —",   font=("Courier", 16, "bold"), width=18)
+        self.spo2_lbl = ttk.Label(live, text="SpO2 —",  font=("Courier", 16, "bold"), width=18)
+        self.bp_lbl   = ttk.Label(live, text="BP   —",  font=("Courier", 16, "bold"), width=25)
 
         for w in (self.hr_lbl, self.rr_lbl, self.spo2_lbl, self.bp_lbl):
             w.pack(side="left", padx=16, pady=8)
 
         # ── Controls row ──
         ctrl = ttk.Frame(self.root)
-        ctrl.grid(row=2, column=0, columnspan=2, sticky="w", **PAD)
+        ctrl.grid(row=2, column=0, columnspan=2, sticky="ew", **PAD)
 
         self.rec_btn    = ttk.Button(ctrl, text="⏺  Record",          command=self.start_recording, state="disabled")
         self.stop_btn   = ttk.Button(ctrl, text="⏹  Stop",            command=self.stop_recording,  state="disabled")
@@ -208,9 +209,15 @@ class VitalsApp:
         rpt.grid(row=3, column=0, columnspan=2, sticky="nsew", **PAD)
 
         self.report_txt = scrolledtext.ScrolledText(
-            rpt, width=52, height=24, font=("Courier", 10), state="disabled"
+            rpt, font=("Courier", 15), state="disabled"
         )
         self.report_txt.pack(fill="both", expand=True, padx=4, pady=4)
+
+        rpt.bind("<Configure>", self.resize_text)
+    def resize_text(self, event):
+        # scale font based on window width
+        new_size = max(10, int(event.width / 40))
+        self.report_txt.configure(font=("Courier", new_size))
 
     # ── Port management ────────────────────────────────────────────────────────
 
@@ -274,8 +281,8 @@ class VitalsApp:
         sp_color = "red"  if spo2 else "black"
         bp_color = "red"  if bp   else "black"
 
-        sp_str = "LOW (<95%)" if spo2 else "OK (≥95%)"
-        bp_map = {0: "Normal", 1: "Low (<90)", 2: "High (>140)"}
+        sp_str = "Low (<95%)" if spo2 else "Normal (≥95%)"
+        bp_map = {0: "Normal", 1: "Low (<90 mmHg)", 2: "High (>140 mmHg)"}
         bp_str = bp_map.get(bp, "?")
 
         self.hr_lbl.config(  text=f"HR   {bpm} BPM", foreground=hr_color)
