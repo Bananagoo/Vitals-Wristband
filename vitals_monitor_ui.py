@@ -37,9 +37,9 @@ def rising_edges(log, key, trigger_val, normal_val=0):
 
 def systemic_state(entry):
     bpm, rr = entry["bpm"], entry["rr"]
-    hr_lo = 0 < bpm < 50
+    hr_lo = bpm < 50
     hr_hi = bpm > 110
-    rr_lo = 0 < rr < 8
+    rr_lo = rr < 12
     rr_hi = rr > 24
     if hr_lo and rr_lo:
         return "depression"
@@ -56,8 +56,10 @@ def generate_report_text(log):
     mins, secs = int(duration // 60), int(duration % 60)
     total = len(log)
 
-    bpms = [e["bpm"] for e in log if e["bpm"] > 0]
-    rrs  = [e["rr"]  for e in log if e["rr"]  > 0]
+    bpms = [e["bpm"] for e in log]
+    rrs  = [e["rr"]  for e in log]
+    final_bpm = log[-1]["bpm"]
+    final_rr  = log[-1]["rr"]
 
     spo2_events  = rising_edges(log, "spo2", 1, 0)
     bp_lo_events = rising_edges(log, "bp",   1, 0)
@@ -73,9 +75,10 @@ def generate_report_text(log):
             exc_events += 1
         prev = s
 
-    spo2_pct  = sum(1 for e in log if e["spo2"] == 1) / total * 100
-    bp_lo_pct = sum(1 for e in log if e["bp"]   == 1) / total * 100
-    bp_hi_pct = sum(1 for e in log if e["bp"]   == 2) / total * 100
+    spo2_mins  = sum(1 for e in log if e["spo2"] == 1) / total * duration / 60
+    bp_lo_mins = sum(1 for e in log if e["bp"]   == 1) / total * duration / 60
+    bp_hi_mins = sum(1 for e in log if e["bp"]   == 2) / total * duration / 60
+    bp_ok_mins = duration / 60 - bp_lo_mins - bp_hi_mins
 
     start_str = datetime.fromtimestamp(log[0]["ts"]).strftime("%H:%M:%S")
     end_str   = datetime.fromtimestamp(log[-1]["ts"]).strftime("%H:%M:%S")
@@ -90,42 +93,32 @@ def generate_report_text(log):
         "",
         "── Heart Rate ──────────────────────────",
     ]
-    if bpms:
-        lines += [
-            f"  Current:  {bpms[-1]} BPM",
-            f"  Min:      {min(bpms)} BPM",
-            f"  Max:      {max(bpms)} BPM",
-            f"  Avg:      {sum(bpms) // len(bpms)} BPM",
-            f"  Range:    50 – 110 BPM",
-        ]
-    else:
-        lines.append("  No HR data")
+    lines += [
+        f"  Current:  {final_bpm} BPM",
+        f"  Min:      {min(bpms)} BPM",
+        f"  Max:      {max(bpms)} BPM",
+        f"  Avg:      {sum(bpms) // len(bpms)} BPM",
+    ]
 
     lines += [
         "",
         "── Respiratory Rate ────────────────────",
+        f"  Current:  {final_rr} RPM",
+        f"  Min:      {min(rrs)} RPM",
+        f"  Max:      {max(rrs)} RPM",
+        f"  Avg:      {sum(rrs) // len(rrs)} RPM",
     ]
-    if rrs:
-        lines += [
-            f"  Current:  {rrs[-1]} RPM",
-            f"  Min:      {min(rrs)} RPM",
-            f"  Max:      {max(rrs)} RPM",
-            f"  Avg:      {sum(rrs) // len(rrs)} RPM",
-            f"  Range:    8 – 24 RPM",
-        ]
-    else:
-        lines.append("  No RR data")
 
     lines += [
         "",
         "── SpO2 ────────────────────────────────",
-        f"  Time below 95%:  {spo2_pct:.1f}%",
+        f"  Time below 95%:  {spo2_mins:.1f} min",
         f"  Low events:      {spo2_events}",
         "",
         "── Blood Pressure ──────────────────────",
-        f"  Time normal:     {100 - bp_lo_pct - bp_hi_pct:.1f}%",
-        f"  Time low  (<90): {bp_lo_pct:.1f}%  ({bp_lo_events} events)",
-        f"  Time high (>140):{bp_hi_pct:.1f}%  ({bp_hi_events} events)",
+        f"  Time normal:     {bp_ok_mins:.1f} min",
+        f"  Time low  (<90): {bp_lo_mins:.1f} min  ({bp_lo_events} events)",
+        f"  Time high (>140):{bp_hi_mins:.1f} min  ({bp_hi_events} events)",
         "",
         "── Systemic Alarms ─────────────────────",
         f"  Depression episodes: {dep_events}",
@@ -195,7 +188,7 @@ class VitalsApp:
 
         self.rec_btn    = ttk.Button(ctrl, text="⏺  Record",          command=self.start_recording, state="disabled")
         self.stop_btn   = ttk.Button(ctrl, text="⏹  Stop",            command=self.stop_recording,  state="disabled")
-        self.report_btn = ttk.Button(ctrl, text="📋  Generate Report", command=self.show_report,     state="disabled")
+        self.report_btn = ttk.Button(ctrl, text="Generate Report", command=self.show_report,     state="disabled")
 
         self.rec_btn.pack(side="left", padx=4)
         self.stop_btn.pack(side="left", padx=4)
@@ -276,10 +269,10 @@ class VitalsApp:
     def _update_live(self, e):
         bpm, rr, spo2, bp = e["bpm"], e["rr"], e["spo2"], e["bp"]
 
-        hr_color = "red" if (bpm > 0 and (bpm < 50 or bpm > 110)) else "black"
-        rr_color = "red" if (rr  > 0 and (rr  < 8  or rr  > 24))  else "black"
-        sp_color = "red"  if spo2 else "black"
-        bp_color = "red"  if bp   else "black"
+        hr_color = "red" if (bpm > 110) else "blue" if (bpm < 50) else "black"
+        rr_color = "red" if (rr > 24) else "blue" if (rr < 12) else "black"
+        sp_color = "blue" if spo2 else "black"
+        bp_color = "blue" if bp == 1 else "red" if bp == 2 else "black"
 
         sp_str = "Low (<95%)" if spo2 else "Normal (≥95%)"
         bp_map = {0: "Normal", 1: "Low (<90 mmHg)", 2: "High (>140 mmHg)"}
@@ -305,7 +298,7 @@ class VitalsApp:
         n = len(self.log)
         self.stop_btn.config(state="disabled")
         self.rec_btn.config(state="normal")
-        self.rec_lbl.config(text=f"Stopped  ({n} samples)", foreground="black")
+        self.rec_lbl.config(text="Stopped", foreground="black")
         if n > 0:
             self.report_btn.config(state="normal")
 

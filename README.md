@@ -121,8 +121,8 @@ Three breaths in 12 seconds = 60/12 × 5 = 15 RPM.
 
 | Vital | Low threshold | Normal | High threshold |
 |---|---|---|---|
-| HR | < 50 BPM | 50–110 | > 110 BPM |
-| RR | < 8 RPM | 8–24 | > 24 RPM |
+| HR | < 50 BPM (incl. 0) | 50–110 | > 110 BPM |
+| RR | < 12 RPM (incl. 0) | 12–24 | > 24 RPM |
 | SpO2 | < 95% (latch) | ≥ 95% | — |
 | BP | < 90 mmHg (latch) | 90–140 | > 140 mmHg (latch) |
 
@@ -135,11 +135,11 @@ A `sys_state` value is computed each loop iteration from the current vital state
 | `sys_state` | Condition | Meaning |
 |---|---|---|
 | 0 | All normal | No alarm |
-| 1 | SpO2 low + RR low | Respiratory depression (partial) |
-| 2 | RR high only | Respiratory excitation |
-| 3 | HR low + BP low | Circulatory depression (partial) |
-| 4 | HR high only | Circulatory excitation |
-| 5 | HR low AND RR low | **Systemic depression** |
+| 1 | SpO2 low + RR low, HR normal | Respiratory depression + hypoxia |
+| 2 | RR high, HR normal | Tachypnea |
+| 3 | HR low + BP low, RR normal | Bradycardia + hypotension |
+| 4 | HR high, RR normal | Tachycardia |
+| 5 | HR low AND RR low (incl. both = 0) | **Systemic depression** |
 | 6 | HR high AND RR high | **Systemic excitation** |
 
 ---
@@ -171,8 +171,8 @@ Both LEDs override to a synchronised flash at ~500 ms:
 Updated every ~500 ms. No system state number is shown — the display is reserved for raw vital values only.
 
 ```
-Row 1:  HR: 72♥  RR: 14○
-Row 2:  BP☺ O2☺
+Row 1:  RR: 14○  HR: 72♥
+Row 2:  O2☺ BP☺
 ```
 
 **Row 1 icons:**
@@ -188,16 +188,13 @@ Row 2:  BP☺ O2☺
 
 ### Power-Up Sequence
 
-On power-on, the system enters a **12-second boot hold** before normal operation begins:
+On power-on, the system begins monitoring immediately:
 
 1. Timer1 and INT0 are configured and enabled.
-2. Both LEDs are set solid green.
-3. LCD shows `"Vitals Monitor"` / `"Monitoring..."`.
-4. A blocking loop waits for `RR_WIN_OVF` (732) overflows ≈ 12 seconds.
-5. All timing references are initialised from the current `ovf_count` — measurement windows start fresh from this point.
-6. LCD clears and normal operation begins.
+2. All timing references are initialised from the current `ovf_count`.
+3. Normal operation begins — BPM updates after the first 6 s window, RPM after the first 12 s window.
 
-`RR_WIN_OVF` is reused deliberately so the boot duration matches the first RR measurement window.
+Until the first window closes, BPM and RPM are reported as 0 (shown in blue on the companion app).
 
 ---
 
@@ -263,14 +260,14 @@ Recording can be started and stopped multiple times per connection. Each time **
 
 ### Live Display
 
-Values update every ~500 ms (matching the Arduino serial rate). Any value outside its normal range is shown in **red**:
+Values update every ~500 ms (matching the Arduino serial rate). Out-of-range values are colour-coded:
 
-| Field | Red when |
-|---|---|
-| HR | < 50 or > 110 BPM |
-| RR | < 8 or > 24 RPM |
-| SpO2 | LOW flag set |
-| BP | Low or High flag set |
+| Field | Blue when | Red when |
+|---|---|---|
+| HR | < 50 BPM (incl. 0) | > 110 BPM |
+| RR | < 12 RPM (incl. 0) | > 24 RPM |
+| SpO2 | LOW flag set | — |
+| BP | Low flag set | High flag set |
 
 ---
 
@@ -280,12 +277,12 @@ Generated from all samples collected between Record and Stop:
 
 | Section | Metrics |
 |---|---|
-| Heart Rate | Current, min, max, average BPM |
-| Respiratory Rate | Current, min, max, average RPM |
-| SpO2 | % time below 95%, number of low events |
-| Blood Pressure | % time normal / low / high, event counts per threshold |
+| Heart Rate | Current, min, max, average BPM (0 BPM included) |
+| Respiratory Rate | Current, min, max, average RPM (0 RPM included) |
+| SpO2 | Minutes below 95%, number of low events |
+| Blood Pressure | Minutes normal / low / high, event counts per threshold |
 | Systemic Alarms | Number of depression episodes, number of excitation episodes |
-| Session | Start time, end time, total duration, sample count |
+| Session | Start time, end time, total duration |
 
 **Event counting** uses rising-edge detection — one SpO2 episode = one count, regardless of how long it persisted. Systemic episodes are counted as transitions into that state, not the number of samples in that state.
 

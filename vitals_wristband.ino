@@ -167,19 +167,19 @@ ISR(INT0_vect) {
     }
   }
 
-  // BP low latch for 30 s
+  // BP low latch for 30 s (ignored if high is already latched)
   if (pins & _BV(6)) {
-    if ((now - bp_last) > DEBOUNCE_OVF) {
-      bp_bits  = 0b01;   // low overrides high
+    if (bp_bits != 0b10 && (now - bp_last) > DEBOUNCE_OVF) {
+      bp_bits  = 0b01;
       bp_start = now;
       bp_last  = now;
     }
   }
 
-  // BP high latch for 30 s
+  // BP high latch for 30 s (ignored if low is already latched)
   if (pins & _BV(7)) {
-    if ((now - bp_last) > DEBOUNCE_OVF) {
-      bp_bits  = 0b10;   // high overrides low
+    if (bp_bits != 0b01 && (now - bp_last) > DEBOUNCE_OVF) {
+      bp_bits  = 0b10;
       bp_start = now;
       bp_last  = now;
     }
@@ -227,24 +227,7 @@ void setup() {
 
   sei();
 
-  // 12-second power-up hold: both LEDs green, LCD shows startup message
-  setResp(0, 1, 0);
-  setCirc(0, 1, 0);
-
-  lcd.setCursor(0, 0);
-  lcd.print("Vitals Monitor  ");
-  lcd.setCursor(0, 1);
-  lcd.print("Monitoring...   ");
-
-  uint32_t boot_start;
-  cli(); boot_start = ovf_count; sei();
-  while (1) {
-    uint32_t now;
-    cli(); now = ovf_count; sei();
-    if ((now - boot_start) >= RR_WIN_OVF) break;  // RR_WIN_OVF = 732 overflows ≈ 12 s
-  }
-
-  // Initialise all timing references after the hold so windows start fresh
+  // Initialise all timing references immediately — no boot hold
   uint32_t t = ovf_count;
   hr_win_start  = t;
   rr_win_start  = t;
@@ -252,8 +235,6 @@ void setup() {
   lcd_last      = t;
   hr_beat_last  = t;
   rr_flash_last = t;
-
-  lcd.clear();
 }
 
 void loop() {
@@ -311,7 +292,7 @@ void loop() {
   sei();
 
   hr_state   = (bpm < 50) ? 0b01 : (bpm > 110) ? 0b10 : 0b00;
-  rr_state   = (rpm < 8)  ? 0b01 : (rpm > 24)  ? 0b10 : 0b00;
+  rr_state   = (rpm < 12) ? 0b01 : (rpm > 24)  ? 0b10 : 0b00;
   spo2_state = sp;
   bp_state   = bp;
 
@@ -429,31 +410,30 @@ void updateDisplay() {
   Serial.print(",SPO2:"); Serial.print(spo2_state);
   Serial.print(",BP:");  Serial.println(bp_state);
 
-  // Row 1: HR:<bpm><heart> RR:<rpm><circle>
+  // Row 1: RR:<rpm><circle> HR:<bpm><heart>
   lcd.setCursor(0, 0);
-  lcd.print("HR:");
+  lcd.print("RR:");
+  if (rpm < 10) lcd.print(' ');
+  lcd.print(rpm);
+  if (rr_flash_on) lcd.write(byte(4)); else lcd.print(' ');
+
+  lcd.print(" HR:");
   if (bpm < 100) lcd.print(' ');
   if (bpm < 10)  lcd.print(' ');
   lcd.print(bpm);
   if (hr_beat_on) lcd.write(byte(3)); else lcd.print(' ');
 
-  lcd.print(" RR:");
-  if (rpm < 10) lcd.print(' ');
-  lcd.print(rpm);
-  if (rr_flash_on) lcd.write(byte(4)); else lcd.print(' ');
-  lcd.print(' ');
-
-  // Row 2: BP<icon> O2<icon>
+  // Row 2: O2<icon> BP<icon>
   lcd.setCursor(0, 1);
-  lcd.print("BP");
+  lcd.print("O2");
+  if (spo2_state == 0) lcd.write(byte(0));
+  else                 lcd.write(byte(1));
+
+  lcd.print(" BP");
   if      (bp_state == 0b00) lcd.write(byte(0));
   else if (bp_state == 0b01) lcd.write(byte(1));
   else if (bp_state == 0b10) lcd.write(byte(2));
   else                       lcd.print('?');
-
-  lcd.print(" O2");
-  if (spo2_state == 0) lcd.write(byte(0));
-  else                 lcd.write(byte(1));
 
   lcd.print("         ");
 }
