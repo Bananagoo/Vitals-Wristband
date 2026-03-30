@@ -20,14 +20,18 @@ def parse_line(line):
             "rr":   parts["RR"],
             "spo2": parts["SPO2"],
             "bp":   parts["BP"],
-            "ts":   time.time(),
+            "ts":   time.time(),   # wall-clock timestamp for duration calculations
         }
     except Exception:
-        return None
+        return None   # silently discard malformed lines (startup noise, partial reads)
 
 
 def rising_edges(log, key, trigger_val, normal_val=0):
-    """Count transitions from normal_val → trigger_val in a log list."""
+    """Count transitions from normal_val → trigger_val in a log list.
+
+    Counts discrete events rather than total samples in alarm state —
+    e.g. one SpO2 episode = 1 regardless of how long it lasted.
+    """
     count = 0
     for i in range(1, len(log)):
         if log[i][key] == trigger_val and log[i - 1][key] == normal_val:
@@ -36,10 +40,12 @@ def rising_edges(log, key, trigger_val, normal_val=0):
 
 
 def systemic_state(entry):
+    # Thresholds mirror the Arduino firmware exactly so report classification
+    # matches what the hardware displayed during the session.
     bpm, rr = entry["bpm"], entry["rr"]
-    hr_lo = bpm < 50
+    hr_lo = bpm < 50    # includes 0 BPM
     hr_hi = bpm > 110
-    rr_lo = rr < 12
+    rr_lo = rr < 12     # includes 0 RPM
     rr_hi = rr > 24
     if hr_lo and rr_lo:
         return "depression"
@@ -56,6 +62,7 @@ def generate_report_text(log):
     mins, secs = int(duration // 60), int(duration % 60)
     total = len(log)
 
+    # Include 0 values — a 0 BPM/RPM reading is a valid measurement, not missing data
     bpms = [e["bpm"] for e in log]
     rrs  = [e["rr"]  for e in log]
     final_bpm = log[-1]["bpm"]
@@ -65,6 +72,7 @@ def generate_report_text(log):
     bp_lo_events = rising_edges(log, "bp",   1, 0)
     bp_hi_events = rising_edges(log, "bp",   2, 0)
 
+    # Count transitions into each systemic state using a prev-state tracker
     dep_events = exc_events = 0
     prev = "normal"
     for e in log:
@@ -75,6 +83,9 @@ def generate_report_text(log):
             exc_events += 1
         prev = s
 
+    # Time-in-state: fraction of samples in state × total duration → minutes
+    # This assumes uniform sampling rate, which holds since the Arduino sends
+    # one line every ~500 ms regardless of vital sign values.
     spo2_mins  = sum(1 for e in log if e["spo2"] == 1) / total * duration / 60
     bp_lo_mins = sum(1 for e in log if e["bp"]   == 1) / total * duration / 60
     bp_hi_mins = sum(1 for e in log if e["bp"]   == 2) / total * duration / 60
@@ -138,13 +149,13 @@ class VitalsApp:
         self.root.resizable(True, True)
         self.root.geometry("800x600")
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(3, weight=1)
+        self.root.rowconfigure(3, weight=1)   # report area expands with window
 
-        self.ser        = None
-        self.running    = False
-        self.recording  = False
-        self.log        = []
-        self._thread    = None
+        self.ser        = None    # pyserial Serial object, None when disconnected
+        self.running    = False   # flag that drives the serial read loop
+        self.recording  = False   # when True, entries are appended to self.log
+        self.log        = []      # list of sample dicts for the current session
+        self._thread    = None    # daemon thread running _read_loop
 
         self._build_ui()
         self.refresh_ports()
@@ -207,6 +218,7 @@ class VitalsApp:
         self.report_txt.pack(fill="both", expand=True, padx=4, pady=4)
 
         rpt.bind("<Configure>", self.resize_text)
+
     def resize_text(self, event):
         # scale font based on window width
         new_size = max(10, int(event.width / 40))
@@ -228,8 +240,12 @@ class VitalsApp:
 
     def _connect(self):
         try:
+            # timeout=1 prevents readline() from blocking forever if the Arduino
+            # stops sending — the read loop will retry on the next iteration
             self.ser     = serial.Serial(self.port_var.get(), 9600, timeout=1)
             self.running = True
+            # daemon=True: thread is killed automatically when the app exits,
+            # so the process never hangs waiting for a final readline()
             self._thread = threading.Thread(target=self._read_loop, daemon=True)
             self._thread.start()
             self.conn_lbl.config(text="● Connected", foreground="green")
@@ -239,9 +255,9 @@ class VitalsApp:
             self.conn_lbl.config(text=f"Error: {e}", foreground="red")
 
     def _disconnect(self):
-        self.running = False
+        self.running = False          # signals the read loop to exit
         if self._thread:
-            self._thread.join(timeout=2)
+            self._thread.join(timeout=2)   # wait up to one readline timeout + margin
         if self.ser:
             self.ser.close()
             self.ser = None
@@ -253,6 +269,8 @@ class VitalsApp:
     # ── Serial reading thread ──────────────────────────────────────────────────
 
     def _read_loop(self):
+        # Runs on the daemon thread. readline() blocks until \n arrives or timeout.
+        # list.append is GIL-atomic in CPython, so no explicit lock is needed.
         while self.running:
             try:
                 raw = self.ser.readline().decode("utf-8", errors="ignore")
@@ -260,6 +278,8 @@ class VitalsApp:
                 if entry:
                     if self.recording:
                         self.log.append(entry)
+                    # root.after(0, ...) posts the UI update to tkinter's event queue
+                    # so it executes on the main thread — tkinter is not thread-safe
                     self.root.after(0, self._update_live, entry)
             except Exception:
                 break
@@ -269,6 +289,7 @@ class VitalsApp:
     def _update_live(self, e):
         bpm, rr, spo2, bp = e["bpm"], e["rr"], e["spo2"], e["bp"]
 
+        # Colour coding: red = high/above range, blue = low/below range (incl. 0), black = normal
         hr_color = "red" if (bpm > 110) else "blue" if (bpm < 50) else "black"
         rr_color = "red" if (rr > 24) else "blue" if (rr < 12) else "black"
         sp_color = "blue" if spo2 else "black"
@@ -286,7 +307,7 @@ class VitalsApp:
     # ── Recording controls ─────────────────────────────────────────────────────
 
     def start_recording(self):
-        self.log       = []
+        self.log       = []     # clear any previous session
         self.recording = True
         self.rec_btn.config(state="disabled")
         self.stop_btn.config(state="normal")
@@ -309,7 +330,7 @@ class VitalsApp:
         self.report_txt.config(state="normal")
         self.report_txt.delete("1.0", tk.END)
         self.report_txt.insert(tk.END, text)
-        self.report_txt.config(state="disabled")
+        self.report_txt.config(state="disabled")   # prevent user editing
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

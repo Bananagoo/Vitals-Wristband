@@ -1,0 +1,23 @@
+# Technical documentation (local only)
+TECHNICAL_OVERVIEW.md
+CODE_WALKTHROUGH.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# macOS
+.DS_Store
+
+# Arduino build artefacts
+build/
+*.elf
+*.hex
+*.map
+
+# VS Code
+.vscode/
