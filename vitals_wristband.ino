@@ -270,7 +270,7 @@ void loop() {
     hr_count = 0;
     sei();
 
-    bpm = (uint8_t)((uint32_t)beats * BPM_SCALE);
+    bpm = beats * BPM_SCALE;
     hr_win_start = now;
   }
 
@@ -281,7 +281,7 @@ void loop() {
     rr_count = 0;
     sei();
 
-    rpm = (uint8_t)((uint32_t)breaths * RPM_SCALE);
+    rpm = breaths * RPM_SCALE;
     rr_win_start = now;
   }
 
@@ -297,15 +297,10 @@ void loop() {
   spo2_state = sp;
   bp_state   = bp;
 
-  // Convenience booleans for the state machine below
-  uint8_t hrLo = (hr_state == 0b01);
-  uint8_t hrHi = (hr_state == 0b10);
-  uint8_t rrLo = (rr_state == 0b01);
-  uint8_t rrHi = (rr_state == 0b10);
 
-  if      (hrLo && rrLo)           sys_state = 1;   // systemic depression
-  else if (hrHi && rrHi)           sys_state = 2;   // systemic excitation
-  else                             sys_state = 0;   // all normal
+  if      (hr_state == 0b01 && rr_state == 0b01) sys_state = 1;   // systemic depression
+  else if (hr_state == 0b10 && rr_state == 0b10) sys_state = 2;   // systemic excitation
+  else                                           sys_state = 0;   // all normal
 
   // flash toggle every 500 ms
   if ((now - flash_last) >= FLASH_OVF) {
