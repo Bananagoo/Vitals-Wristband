@@ -302,8 +302,6 @@ void loop() {
   uint8_t hrHi = (hr_state == 0b10);
   uint8_t rrLo = (rr_state == 0b01);
   uint8_t rrHi = (rr_state == 0b10);
-  uint8_t spLo = (spo2_state == 1);
-  uint8_t bpLo = (bp_state == 0b01);
 
   if      (hrLo && rrLo)           sys_state = 1;   // systemic depression
   else if (hrHi && rrHi)           sys_state = 2;   // systemic excitation
