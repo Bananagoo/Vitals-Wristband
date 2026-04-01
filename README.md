@@ -130,17 +130,15 @@ Three breaths in 12 seconds = 60/12 × 5 = 15 RPM.
 
 ### System State Logic
 
-A `sys_state` value is computed each loop iteration from the current vital states:
+A `sys_state` value is computed each loop iteration to drive the LED alarm behaviour:
 
 | `sys_state` | Condition | Meaning |
 |---|---|---|
 | 0 | All normal | No alarm |
-| 1 | SpO2 low + RR low, HR normal | Respiratory depression + hypoxia |
-| 2 | RR high, HR normal | Tachypnea |
-| 3 | HR low + BP low, RR normal | Bradycardia + hypotension |
-| 4 | HR high, RR normal | Tachycardia |
-| 5 | HR low AND RR low (incl. both = 0) | **Systemic depression** |
-| 6 | HR high AND RR high | **Systemic excitation** |
+| 1 | HR low AND RR low (incl. both = 0) | **Systemic depression** |
+| 2 | HR high AND RR high | **Systemic excitation** |
+
+Individual vital states (HR high/low, RR high/low) are still classified and reflected independently on each LED — `sys_state` only captures the combined systemic alarms that override both LEDs simultaneously.
 
 ---
 
@@ -171,7 +169,7 @@ Both LEDs override to a synchronised flash at ~500 ms:
 Updated every ~500 ms. No system state number is shown — the display is reserved for raw vital values only.
 
 ```
-Row 1:  RR: 14○  HR: 72♥
+Row 1:  RR:14○ HR: 72♥
 Row 2:  O2☺ BP☺
 ```
 
